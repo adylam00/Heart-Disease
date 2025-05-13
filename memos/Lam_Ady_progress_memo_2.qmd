@@ -1,0 +1,228 @@
+---
+title: "Progress Memo 2"
+subtitle: |
+  | Final Project 
+  | Data Science 2 with R (STAT 301-2)
+author: "Ady Lam"
+pagetitle: "PM1 Ady Lam"
+date: today
+
+format:
+  html:
+    toc: true
+    embed-resources: true
+    
+execute:
+  warning: false
+
+from: markdown+emoji 
+reference-location: margin
+citation-location: margin
+---
+
+::: {.callout-tip icon=false}
+
+## Github Repo Link
+[Ady's Github Repo URL for her Final Project - dun dun dun!!!](https://github.com/stat301-2-2025-winter/final-project-2-adylam00.git)
+
+:::
+
+
+```{r}
+#| label: load-packages-hidden
+#| echo: false
+
+# load packages ----
+library(tidyverse)
+library(tidymodels)
+library(skimr)
+library(here)
+library(DT)
+
+
+# handle conflicts
+tidymodels_prefer()
+
+# set seed
+set.seed(745)
+
+# loading data
+load(here::here("data/hdhi_split.rda"))
+load(here::here("data/hdhi_training.rda"))
+load(here::here("data/hdhi_testing.rda"))
+
+# loading figures
+load(here("results/model_f1_table.rda"))
+
+```
+
+
+::: {.callout-note collapse="true" icon="false"}
+### Previous information from Progress Memo 1 (for reference)
+
+## Prediction problem 
+I aim to predict whether a person will experience a heart attack or heart disease at some point in their life from their health-related risk behaviours and chronic health conditions (if any). This is a classification prediction problem because the output variables are discrete and binary – respondents either have never or have had a heart attack/disease.
+
+I explored NBA data for my previous final project; for this one I was hoping to explore a new field, preferably one from real data and that I can have useful takeaways from. After what felt like days of searching for a suitable dataset that fit the criteria, I found this dataset on heart disease health indicators. My parents are in their 60s, and they need to go for health checkups quite regularly. Thankfully nothing too serious has happened to them yet, but I thought it'd be really interesting if I could use the model that I make to see if their health habits make them more likely to experience any heart conditions (hopefully not!!!), and if so help them change their habits in the right direction. 
+
+
+
+## Data source
+
+I sourced my dataset, the Heart Disease Health Indicators Dataset, from Kaggle.^[Teboul, A (2023). Heart Disease Health Indicators Dataset. Kaggle. Retrieved February 4, 2022, from [https://www.kaggle.com/datasets/alexteboul/heart-disease-health-indicators-dataset/data](https://www.kaggle.com/datasets/alexteboul/heart-disease-health-indicators-dataset/data)] This dataset itself is based off the 2015 edition of the Behavioral Risk Factor Surveillance System (BRFSS), a health-related telephone survey administered to over 400,000 Americans from all 50 states (plus D.C. and 3 U.S. territories), making it the largest ongoing health survey system globally. It has provided invaluable data on health risk factors and trends across the country.^[Centers for Disease Control and Prevention. (2024, November 22). Behavioral Risk Factor Surveillance System. Cdc.gov. [https://www.cdc.gov/brfss/index.html](https://www.cdc.gov/brfss/index.html)]
+
+The dataset I am currently using is a cleaned and consolidated version of the original BRFSS 2015 dataset^[Centers for Disease Control and Prevention (2017). Behavioral Risk Surveillance System. Kaggle. Retrieved February 4, 2022 from ([https://www.kaggle.com/datasets/cdc/behavioral-risk-factor-surveillance-system](https://www.kaggle.com/datasets/cdc/behavioral-risk-factor-surveillance-system)]. The creator of the Heart Disease Health Indicators Dataset selected features in the BRFSS that reflected risk factors of heart disease, dropped missing values, modified and cleaned values, and made the feature names more readable. Therefore, very little tidying will be necessary.
+
+
+
+## Data quality check
+
+::: {.panel-tabset}
+
+#### Overall dataset
+
+```{r}
+#| label: tbl-data-quality-check
+#| tbl-cap: 'Quality check of the dataset'
+#| echo: false
+
+# creating summary 
+summary_table <- hdhi_training |>
+  summarise(
+    `Total Observations` = nrow(hdhi_training),
+    `Total Variables` = ncol(hdhi_training),
+    `Categorical Variables` = sum(sapply(hdhi_training, is.factor)),
+    `Numerical Variables` = sum(sapply(hdhi_training, is.numeric)),
+    `Missing Values` = sum(is.na(hdhi_training))
+  )
+
+# creating table
+knitr::kable(summary_table)
+```
+
+
+#### Individual Variables
+
+```{r}
+#| label: tbl-variables-quality-check
+#| tbl-cap: 'Quality check of individual variables of the dataset'
+#| echo: false
+#| code-fold: true
+#| code-summary: 'Individual variables'
+
+hdhi_training |>
+  skim() |>
+  select(skim_type:factor.top_counts) |>
+  datatable(
+    rownames = FALSE
+  ) 
+```
+
+
+::: 
+
+According to @tbl-data-quality-check, there are 202,944 observations and 22 variables. Of these variables, 15 are categorical and 7 are numerical. There is also no missingness in this dataset. @tbl-variables-quality-check displays individual summaries for each variable. Tidying is likely not necessary for this dataset because as aforementioned, this dataset has already been cleaned and consolidated from the original BRFSS 2015 dataset. 
+
+
+
+## Target variable analysis
+
+![Number of Americans who have had heart disease or a heart attack](../figures/hdhi_barchart.png){#fig-hdhi_barchart}
+
+```{r}
+#| label: tbl-hdhi_outcome
+#| tbl-cap: 'Incidence of Heart Disease/Attack among American respondents'
+#| echo: false
+
+hdhi_outcome_table <- hdhi_training |>
+  mutate(`Reported Previous Heart Disease/Attack?` = `HeartDiseaseorAttack`) |>
+  count(`Reported Previous Heart Disease/Attack?`) |>
+  mutate(`Proportion` = (100 * n / sum(n)) |> round(digits = 1)) 
+  
+knitr::kable(hdhi_outcome_table)
+
+```
+
+Given that our outcome variable is a factor variable (respondents have either had heart disease or a heart attack before, or they have not), the univariate analysis of the target variable is limited to counts rather than distribution or skewness. We can see from @fig-hdhi_barchart that the number of Americans who have had heart disease/attack are much higher than those who have in our training dataset. The exact numbers and proportions are reported in @tbl-hdhi_outcome, with 90.6% of respondents reporting they have never had heart disease/attack versus 9.4% who have. This is not necessarily surprising given that 5.5% of American adults reported they had been diagnosed with heart disease in 2018^[Centers for Disease Control and Prevention. (2024, August 5). Heart Disease Prevalence . CDC National Center for Health Statistics. [https://www.cdc.gov/nchs/hus/topics/heart-disease-prevalence.htm.](https://www.cdc.gov/nchs/hus/topics/heart-disease-prevalence.htm#:~:text=The%20age%2Dadjusted%20prevalence%20of%20heart%20disease%20in%20men%20decreased,women%20reported%20having%20heart%20disease.)] (This is an age-adjusted estimate that eliminates differences that arise from age, which accounts for the somewhat significant difference between 5.5% and 9.4%). We also likely do not need to do any transformations of the outcome variable. 
+:::
+
+
+
+
+## Assessment Metric
+Given my problem is a binary classification task (predicting whether a person will experience a heart attack or heart disease), I need to use an assessment metric that is relevant for classification problems. Additionally, false positive and false negative predictions can both be problematic. A false positive, such as incorrectly diagnosing someone with heart disease, could cause a lot of unnecessary stress and worry. A false negative would be arguably even worse; failing to identify those at risk would hurt people's chances of mitigating for potential heart disease. Therefore, I want to use a balanced assessment metric that takes both false positives and false negatives into account, so I will be using the F-measure (aka the F1-score).
+
+
+## Analysis Plan
+
+### Data Splitting ###
+- Given that this dataset has over 200,000 observations, I plan on randomly sampling 40,000 observations for the model building itself. 
+- I plan on splitting the 40,000 observations into 80% training, 20% testing. This split will be stratified following the target variable (Having had a heart disease/attack). 
+
+### Resampling ###
+- I plan on using V-fold cross-validation to improve the accuracy of the model. 
+- More specifically, I will apply 7-fold cross-validation with 5 repeats of the training set. I have chosen 7 as I found that my model with 10 folds hadn't finished fitting in 50 minutes. I picked 7 as a compromise between relatively low bias, low variance and a reasonable model training time.  
+- This means the training set is split into 7 folds, in each repeat.  
+- For each repeat, the training set is split into 7 folds. The model is trained on 6 folds and tested on the remaining 1 fold. 
+- The total number of times each model is trained during cross-validation therefore will be 7 folds x 5 repeats = 35 model fits. 
+
+### Models to Fit### 
+I plan to fit the following six models, with the tuning parameters inside the brackets:
+
+- Null/baseline (n/a). 
+- Random forest (mtry, min_n)
+- Binary logistic regression (n/a)
+- Nearest neighbours (neighbours)
+- Boosted Tree (mtry, min_n)
+- Elastic net (penalty, mixture)
+
+### Recipes### 
+- I plan on having at least two recipes for each model. I plan on using interactions to explore whether the combination of multiple risk factors affects outcomes. 
+
+1. Null Recipe (hdhi_recipe_null): Minimal preprocessing for the null model.
+2. Standard Recipe (hdhi_recipe_lm): Prepares data for logistic regression.
+3. Tree-Based Recipe (hdhi_recipe_tree): Prepares data for tree-based models.
+
+- For certain models, I will have to standardize numerical features because they rely on measuring distances between points.
+
+
+## Model Fitting and Evaluation 
+
+```{r}
+#| label: tbl-models-f1
+#| echo: false 
+#| tbl-cap: F1 Score of Fitted Models
+
+
+knitr::kable(model_f1_table) 
+```
+
+
+From @tbl-models-f1, the null model and random forest models actually both have a F1 Score of 0.950. While this would typically suggest that the model is performing exceptionally well, we would expect the null to have a significantly lower F1 score due to it being a very basic model. This suggests that the tuned model isn’t improving upon a simple baseline that might just be predicting the majority class, and that the modelling is mostly useless. I plan on attending office hours to ask for more detailed feedback on my recipes and model definition in case I have not correctly coded parts that have contributed to the very high F1 scores for both models. 
+
+
+
+
+
+## Progress Summary
+I have finished creating my recipes, defining and fitting the null and random forest models to the datasets. My next steps will be doing the same for four other model types. 
+
+### Improvements to make ### 
+1. Investigating reason behind high F1 metric of null model
+As aforementioned, I will also spend some time in office hours looking for feedback on my recipes and code, because I am unsure whether or not I have properly coded everything after seeing the assessment metric values. Similarly, I will consider adjusting my tuning grid to allow for more complexity (with the tradeoff being the modelling process would be very time-consuming) or exploring alternative performance metrics (such as balanced accuracy or AUC) that may better capture improvements in imbalanced classification tasks.
+
+2. Refine recipes to reflect important factors 
+I would also like to refine my recipes to explore the target variable more effectively (i.e. do food/drink factors, socioeconomic status indicators or overall physical health factors matter the most when it comes to predicting heart disease), and apply those interactions to the appropriate models. 
+
+3. Adjust recipes further based on model specifications
+I will also adjust recipes to be appropriate for the different models (i.e. KNN will require normalization because they rely on measuring distances between points.)
+
+
+## Bibliography
+Centers for Disease Control and Prevention. (2024, November 22). Behavioral Risk Factor Surveillance System. Cdc.gov. https://www.cdc.gov/brfss/index.html
+
+Centers for Disease Control and Prevention. (2024, August 5). Heart Disease Prevalence. CDC National Center for Health Statistics. https://www.cdc.gov/nchs/hus/topics/heart-disease-prevalence.htm.
+
+Centers for Disease Control and Prevention (2017). Behavioral Risk Surveillance System. Kaggle. Retrieved February 4, 2022 from https://www.kaggle.com/datasets/cdc/behavioral-risk-factor-surveillance-system
+
+Teboul, A (2023). Heart Disease Health Indicators Dataset. Kaggle. Retrieved February 4, 2022, from [https://www.kaggle.com/datasets/alexteboul/heart-disease-health-indicators-dataset/data

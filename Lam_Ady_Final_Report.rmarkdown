@@ -1,0 +1,476 @@
+---
+title: "Heart Disease Predictive Modelling in R"
+subtitle: |
+  | Final Project 
+  | Data Science 2 with R (STAT 301-2)
+author: "Ady Lam"
+pagetitle: "Final Report Ady Lam"
+date: today
+
+format:
+  html:
+    toc: true
+    embed-resources: true
+    
+execute:
+  warning: false
+
+from: markdown+emoji 
+reference-location: margin
+citation-location: margin
+---
+
+
+
+::: {.callout-tip icon=false}
+## Github Repo Link
+[Ady's Github Repo URL for her Final Project - dun dun dun!!!](https://github.com/stat301-2-2025-winter/final-project-2-adylam00.git)
+:::
+
+
+
+```{r}
+#| label: load-pkgs
+#| echo: false
+
+# load packages
+library(tidyverse)
+library(tidymodels)
+
+# loading results/tables/figures
+load(here::here("figures/hdhi_outcome_table.rda"))
+load(here::here('figures/summary_table.rda'))
+load(here::here('figures/individual_variables_check.rda'))
+load(here::here('results/model_f1_metrics.rda'))
+load(here::here('results/chi_sq_results_df.rda'))
+load(here::here('results/best_en.rda'))
+load(here::here('results/model_best_hyperparameters.rda'))
+load(here::here('results/final_metric_values.rda'))
+load(here::here('results/final_conf_mat.rda'))
+
+```
+
+
+
+
+
+## Introduction 
+I aimed to predict whether a person will experience a heart attack or heart disease at some point in their life from their health-related risk behaviours and chronic health conditions (if any). 
+
+I explored NBA data for my previous final project; for this one I was hoping to explore a new field, preferably one from real data and that I can have useful takeaways from. After what felt like days of searching for a suitable dataset that fit the criteria, I found this dataset on heart disease health indicators. Being able to predict heart disease/attacks is useful in general because it can help alert those at risk to take the necessary steps to prevent heart disease before it happens. My parents are in their 60s, and they need to go for health checkups quite regularly. Thankfully nothing too serious has happened to them yet, but I thought it'd be really interesting if I could use the model that I make to see if their health habits make them more likely to experience any heart conditions (hopefully not!!!), and if so help them change their habits in the right direction. 
+
+## Data Source
+I sourced my dataset, the Heart Disease Health Indicators Dataset, from Kaggle.^[Teboul, A (2023). Heart Disease Health Indicators Dataset. Kaggle. Retrieved February 4, 2022, from [https://www.kaggle.com/datasets/alexteboul/heart-disease-health-indicators-dataset/data](https://www.kaggle.com/datasets/alexteboul/heart-disease-health-indicators-dataset/data)] This dataset itself is based off the 2015 edition of the Behavioral Risk Factor Surveillance System (BRFSS), a health-related telephone survey administered to over 400,000 Americans from all 50 states (plus D.C. and 3 U.S. territories), making it the largest ongoing health survey system globally. It has provided invaluable data on health risk factors and trends across the country.^[Centers for Disease Control and Prevention. (2024, November 22). Behavioral Risk Factor Surveillance System. Cdc.gov. [https://www.cdc.gov/brfss/index.html](https://www.cdc.gov/brfss/index.html)]
+
+The dataset I used is a cleaned and consolidated version of the original BRFSS 2015 dataset^[Centers for Disease Control and Prevention (2017). Behavioral Risk Surveillance System. Kaggle. Retrieved February 4, 2022 from ([https://www.kaggle.com/datasets/cdc/behavioral-risk-factor-surveillance-system](https://www.kaggle.com/datasets/cdc/behavioral-risk-factor-surveillance-system)]. The creator of the Heart Disease Health Indicators Dataset selected features in the BRFSS that reflected risk factors of heart disease, dropped missing values, modified and cleaned values, and made the feature names more readable. Therefore, very little tidying was necessary.
+
+
+
+###  Data Overview ### 
+
+::: {.panel-tabset}
+
+## Outcome Variable
+
+![Number of Americans who have had heart disease or a heart attack](figures/hdhi_barchart.png){#fig-hdhi_barchart}
+
+
+
+```{r}
+#| label: tbl-hdhi_outcome
+#| tbl-cap: 'Incidence of Heart Disease/Attack among American respondents'
+#| echo: false
+
+  
+knitr::kable(hdhi_outcome_table)
+
+```
+
+
+
+@fig-hdhi_barchart shows that there is a severe imbalance in the outcome variable. The number of Americans who have had heart disease/attack are much higher than those who have in our training dataset. The exact numbers and proportions are reported in @tbl-hdhi_outcome, with 90.6% of respondents reporting they have never had heart disease/attack versus 9.4% who have. This is not necessarily surprising given that 5.5% of American adults reported they had been diagnosed with heart disease in 2018.^[Centers for Disease Control and Prevention. (2024, August 5). Heart Disease Prevalence . CDC National Center for Health Statistics. [https://www.cdc.gov/nchs/hus/topics/heart-disease-prevalence.htm.](https://www.cdc.gov/nchs/hus/topics/heart-disease-prevalence.htm#:~:text=The%20age%2Dadjusted%20prevalence%20of%20heart%20disease%20in%20men%20decreased,women%20reported%20having%20heart%20disease.)] (This is an age-adjusted estimate that eliminates differences that arise from age, which accounts for the somewhat significant difference between 5.5% and 9.4%). Therefore, this imbalance needed to be addressed before the data splitting phase. In addition, this dataset is rather large with over 200,000 observations, which would be computationally expensive when running models. I used a sample from this original dataset to have only 47,786 observations (23,893 YES and 23,893 NO), thereby addressing the imbalance and the large dataset size at the same time.
+
+
+## Quality Check of the Whole Dataset
+
+
+
+```{r}
+#| label: tbl-summary-table
+#| tbl-cap: 'Quality check of the dataset'
+#| echo: false
+
+knitr::kable(summary_table)
+```
+
+
+
+
+According to @tbl-summary-table, there are 253,680 observations and 23 variables (one of which was created as an ID variable for each observation). Of the original variables, 15 are categorical and 7 are numerical. 
+
+## Quality Check of Individual Variables
+
+
+
+```{r}
+#| label: tbl-individual-variables
+#| tbl-cap: 'Quality check of individual variables of the dataset'
+#| echo: false
+
+individual_variables_check
+
+```
+
+
+
+There is also no missingness in this dataset. @tbl-individual-variables displays individual summaries for each variable. Tidying was not necessary for this dataset because as aforementioned, this dataset had already been cleaned and consolidated from the original BRFSS 2015 dataset. However, there is significant imbalance in some of the predictor variables, particularly `CholCheck`, `Stroke`, `HvyAlcoholConsump`, and `AnyHealthcare`. I prioritized dealing with the imbalance in the outcome variable over the imbalance in the predictor variables, because the model would more likely become biased toward predicting the majority class, and I felt that the uneven distribution of predictor variables would’t necessarily harm model performance to the same extent. However, this imbalance definitely needs to be acknowledged when evaluating model effectiveness!
+
+::: 
+
+
+Additional exploratory data analysis was conducted to investigate possible interactions between predictor variables that I theorized would exist and can be found in the [Appendix: EDA](#appendix--eda) section. Ultimately only two interactions were found: High Blood Pressure with High Cholesterol, and High Blood Pressure with Diabetes. These were thus included in the complex recipes. 
+
+
+##  Methods 
+This is a classification prediction problem because the output variables are discrete and binary – respondents either have never or have had a heart attack/disease. 
+
+### Data Preprocessing & Splitting ###
+
+The data preprocessing procedure involved:
+
+1. Filtering the original dataset of 253,680 observations to capture all the 'yes' observations, in order to ensure that they would all be included in the dataset used for modelling in order to avoid the model being biased towards 'no' `HeartDiseaseorAttack` values which were the large majority.
+2. Filtering the same dataset to randomly capture the same number of 'no' observations, to create a balanced dataset. 
+3. Combining the two datasets made in the aforementioned two steps to create the new sample dataset that would be used for modeling. 
+
+
+The data splitting procedure involved:
+
+1. Splitting the sample dataset so that 80% of the data was in the training set, 20% in the testing set.
+2. Stratifying the split based on `HeartDiseaseorAttack` to ensure both sets have similar distributions of the outcome variable.
+
+
+
+### Models & Parameters ###
+
+The model types I fit are listed below, along with the parameters that I tuned in brackets (where applicable, with explanations of what these parameters mean). Each model was run with a basic and a more complex recipe apart from the null and Naive Bayes models. 
+
+1. Null/Naive Bayes (n/a) 
+- The null model was run with a basic recipe to act as an indicator if complex modeling is worth it. 
+- The Naive Bayes model was run with a similarly basic recipe to act as another baseline model (but a step up from the null model as it is specifically designed for categorical data) to put more complex models into context when assessing their performance.
+
+2. Random forest (`mtry`, `min_n`)  
+- A random forest model is a versatile, data-driven model that can be used for both regression and classification (such as in our data) purposes. In this study, it was run with both a basic and more complex tree-based recipe.
+- The tuning parameters are mtry (sampled predictors: the number of randomly selected predictor variables that will be selected at each node to split on) and min_n (minimum number of data points needed for splitting). The number of trees is typically also a tuning parameter, but was kept to 500 here to reduce computational cost, after one random forest model with 1000 trees took forever to run. 
+
+3. Binary logistic regression (n/a)  
+- The binary logistic regression model was run with both a basic and more complex logistic regression recipe. It differs from the elastic net model as it uses the `glm` engine rather than the `glmnet` engine. 
+- There are no tuning parameters for logistic regression, although in the recipe specification stage interactions between predictor variables were tuned. 
+
+4. Nearest neighbours (`neighbours`) 
+- The nearest neighbours model is a data-driven, non-parametric model that can be used for both regression and classification. Here, it was run with both a basic and more complex tree-based recipe.
+- The tuning parameter for this model is the number of nearest neighbours. If it is too small it can lead to overfitting, whereas if it is too large this can lead to underfitting. 
+
+5. Boosted Tree (`mtry`, `min_n`)
+- The boosted tree model is another data-driven tree-based model, although unlike the random forest model boosted trees train sequentially, where each tree corrects the errors of the previous one. In this study, it was run with both a basic and more complex tree-based recipe.
+- Similar to the random forest model, the tuning parameters are `mtry` (an abbreviation for sampled predictors: the number of randomly selected predictor variables that will be selected at each node to split on) and min_n (an abbreviation for the minimum number of data points needed for splitting). The number of trees was kept to 500 here to reduce computational cost, after one random forest model with 1000 trees took forever to run. 
+
+6. Elastic net (`penalty`, `mixture`)
+- The elastic net model combines the penalties of L1 and L2 regression, allowing a balance between lasso's variable selection and ridge's coefficient shrinkage. Here, it was run with both a basic and more complex logistic regression recipe. It differs from the binary logistic regression model in that it used the `glmnet` engine rather than the `glm` engine.
+- The tuning parameters were penalty (how much penalty is applied to the model coefficients to prevent overfitting, with a higher value meaning stronger regularization) and mixture (the balance between L1 (Lasso) and L2 (Ridge) regularization). 
+
+### Recipes  
+Four different recipes were created for this modelling process:
+
+1. Basic recipe for a null model
+2. Basic recipe for a Naive Bayes model
+3. Complex recipe for tree-based models (random forest, boosted tree, nearest neighbours)
+4. Complex recipe for logistic regression recipes (elastic net, logistic regression)
+
+Although the null and Naive Bayes models both serve as baseline models, the recipes needed to be different given that Naive Bayes models do not use step_dummy(). To increase their complexity, the tree-based recipes included one-hot encoding of dummy variables while the logistic regression recipes included interactions steps for High Blood Pressure with High Cholesterol, and High Blood Pressure with Diabetes. I did not specifically include interaction steps for the tree-based models because tree-based models already account for some interactions. 
+
+### Resampling ###
+A 7-fold cross-validation object stratified by the outcome variable (`HeartDiseaseorAttack` = whether or not somebody would have a heart disease or attack in their life) was created then repeated 5 times, in order to reduce variability in performance estimates. 7 was chosen after models that used 10-fold cross-validation on this dataset were found to be extraordinarily time- and computationally-intensive. The resamples were used for all of the model fittings. 
+
+### Evaluation Metric ### 
+The evaluation metric I have chosen to use to determine which is the best model is the F1 score I wanted an evaluation metric that is overall balanced between precision and recall, given that both are quite important to the nature of diagnosing heart disease. Precision is important because false positives would be costly (e.g. incorrectly diagnosing someone with heart disease would cause a lot of unnecessary stress), but recall is arguably even more critical because missing true cases (e.g. failing to identify those at risk) could potentially cost lives. I originally chose to use F1 scores over other balanced metrics like ROC-AUC because there was a significant class imbalance for the outcome variable, and I felt that the cost of false negatives outweighed the cost of false positives. Admittedly, this is before I realised I should properly address the class imbalance in my outcome variable, and I reflect upon this in my [conclusion](#conclusion).
+
+## Model Building & Selection ## 
+
+
+
+```{r}
+#| label: tbl-model-f1-metrics
+#| tbl-cap: 'F1 Scores for each fitted model'
+#| echo: false
+
+model_f1_metrics
+
+```
+
+
+
+
+As @tbl-model-f1-metrics shows, the best models appear to be the elastic net and binary logistic regression models based on the previously chosen evaluation metric (F1 score). Although the elastic net model has a higher mean F1 score, it is within one standard error of the binary logistic regression's F1 score, and therefore the models are not statistically distinguishable in performance. I have chosen to proceed with the elastic net model as my final model because I think the regularization provided by the elastic net model prevents against overfitting and multicollinearity. The latter is especially important for my dataset because many of my predictor variables are correlated with each other, as shown in [Appendix: technical info](#appendix--technical-info). I am not necessarily surprised that the elastic net model won because I was expecting a more complex model with tunable parameters to win; to me it makes sense that a model that can be tuned would perform better because the whole premise of model tuning is to find the optimal settings that improve its performance and accuracy. It also makes more sense to me that a model using a more complex recipe that accounts for interactions between predictor variables performs better than a model using a simpler recipe.
+
+For the best-performing models (elastic net, binary logistic and boosted trees), the more complex model performs significantly better (not within one standard error of the simpler model) but only marginally. For the elastic net and binary logistic regression models which are both regularized linear models, this is likely due to the more complex versions retaining more useful predictors that improve classification. For the boosted tree model, I hypothesize this is due to it building trees sequentially, correcting previous errors. A more complex model can correct more mistakes. 
+
+Interestingly, for the random forest and nearest neighbour models, the simple models performed better. This may be because an F1 score is based on precision and recall, and a simpler model might balance those better than the complex one. For random forest, the more complex model had a lower minimum number of observations required in a node to make a split (16 instead of 20), allowing more splits and potentially overfitting. The simpler model performed better likely because it balances capturing important patterns and avoiding overfitting well. For the nearest neighbour model, the full model might be slightly overfitting to local variations, causing lower F1 scores. The simpler model performed slightly better possibly because the full model suffered from the curse of dimensionality, where adding more features made distance calculations less effective.
+
+::: {.panel-tabset}
+
+## Best Hyperparameter Values for All Models
+
+
+
+```{r}
+#| label: tbl-best-hyperparameters
+#| tbl-cap: 'Best Hyperparameter Values for Each Model (where applicable)'
+#| echo: false
+
+model_best_hyperparameters |>
+  knitr::kable()
+```
+
+
+
+
+1. Random Forest
+- Prefers a low number of sampled predictors and moderate minimum number of data points for sampling, meaning it is balancing complexity and overfitting well.
+- Best number of sampled predictors is 3 for both the simpler and complex random forest model. This is a relatively low value, meaning each tree in the forest considers fewer features per split, encouraging diversity among trees and reducing overfitting.
+- The minimum number of data points for sampling is 20 for the simpler model and 16 for the more complex model. The lower value in the full model allows for deeper splits, increasing model complexity, but may have led to overfitting, explaining its slightly worse performance.
+
+2. Elastic Net
+- The more complex model favors ridge regression and higher regularization, while the simple model relies more on lasso for feature selection to reduce complexity when fewer features are available.
+- The penalty refers to how much the coefficients are shrunk toward zero, and is 0.002 for the simpler model and 0.015 for the more complex model. The higher penalty for the complex model suggests slightly stronger regularization.
+- The mixture determines the mix between L1 (lasso) and L2 (ridge) regularization. It is 0.265 for the simpler model meaning it uses more lasso regression and selects fewer predictors, and 0.163 for the more complex model which means it relies more on ridge regression and prevents large coefficient values while keeping all predictors.
+
+3. Nearest Neighbours
+- Both models prefer a high number of neighbors, which suggests that the decision boundary is quite smooth, and individual data points do not have much influence.
+- The number of neighbors used to classify a new observation is 74 for the simpler model and 69 for the more complex model. Therefore they both rely on a large number of neighbors for predictions, but the slightly lower value for the full model suggests it benefits from incorporating a little more local variation. 
+
+4. Boosted Trees
+- A low learning rate and relatively high number of minimum data points for sampling indicate that the model is learning cautiously and avoiding overfitting regardless of the recipe.
+- Best number of sampled predictors is 6 for both the simpler and complex random forest model. This suggests a moderate number of features at each step improves performance. 
+- The minimum number of data points for sampling is 20 for both the simpler model and the more complex model. A higher value like 20 prevents overfitting by ensuring splits happen on meaningful patterns.
+- The learn rate, i.e. how much each tree contributes to the final prediction, is 0.010 for both the simpler and more complex model. This means the model is learning very slowly, preventing overfitting.
+
+
+Further tuning was carried out for the nearest neighbour models based on the original autoplot of the nearest neighbour models. Unfortunately I forgot to save it as an image and therefore cannot show it in this final report, but when the number of neighbours parameter was tuned to a range of 1 to 50, the plot demonstrated the F1 metric still increasing even at 50 with no sign of plateauing. I therefore increased the number of neighbours to 75, and in the new [autoplot](#nearest-neighbours) found an approximate plateau with this upper bound. With this increase, the best performing nearest neighbour model's F1 score surpassed that of the naive Bayes model, performing in line with expectations of a baseline versus a more complex model. However, the autoplots of the [other models](#autoplots-of-models-with-tunable-parameters) did not suggest further tuning was required for the other models. 
+
+## Best Hyperparameter Values for Elastic Net Model
+
+
+```{r}
+#| label: tbl-best-en
+#| tbl-cap: 'Best Hyperparameter Values for Elastic Net Model'
+#| echo: false
+
+best_en |>
+  knitr::kable(digits = 4)
+```
+
+
+
+@tbl-best-en shows the best hyperparameters for the best-performing model. The elastic net model with a more complex recipe performed the best when the `penalty` variable (how much the coefficients are shrunk toward zero) is  0.0151, whereas the `mixture` variable (the mix between L1 (lasso) and L2 (ridge) regression) is 0.1628. This means it uses a higher penalty (more regularization) and leans more toward ridge regression, benefitting from using all predictors without forcing many to zero.
+
+
+:::
+
+
+## Final Model Analysis ## 
+
+
+```{r}
+#| label: tbl-final-metric-values
+#| tbl-cap: 'Evaluation of Elastic Net Model Performance with Different Metrics'
+#| echo: false
+
+final_metric_values |>
+  rename(
+    Metric = .metric,
+    Estimator = .estimator,
+    Value = .estimate 
+  ) |>
+  mutate(
+    Value = round(Value, digits = 5)) |>
+  knitr::kable()
+```
+
+
+
+@tbl-final-metric-values displays how the final elastic net model performed through a variety of metrics including the original F1 score:
+
+- Accuracy of 0.774: 77.4% of all predictions (both positive and negative) are correct.
+- Precision of 0.787: Precision measures out of all the instances a model predicted as positive, the proportion that were actually positive. This result means when the model predicts a heart disease/attack, it is correct about 78.7% of the time; this  is crucial in medical predictions, as a low precision would mean many false alarms, leading to unnecessary anxiety or medical interventions.
+- Recall of 0.752: In this case, recall measures how many actual heart disease/attack cases were correctly identified by the model out of all the actual heart disease instances. A recall of 75.2% means that the model correctly identifies 75.2% of all true heart disease/attack cases but misses about 24.8% of actual cases. A lower recall is risky in medical applications because missing real cases (false negatives) could lead to patients not receiving needed treatment.
+- F1 Score of 0.769 (the original evaluation metric): This F1-score of 76.9% suggests a solid balance between detecting real cases and avoiding too many false alarms.
+- ROC AUC: Short for Receiver Operating Characteristic - Area Under the Curve, this metric measures the model’s ability to distinguish between positive and negative cases across different probability thresholds. The value of 0.850 here means that if you randomly pick one person with heart disease and one without, the model will correctly rank them 85% of the time. This suggests a strong overall predictive capability and indicates that the model is doing well at separating people at risk from those not at risk.
+
+Overall, these evaluation metrics indicate that this model is performing reasonably well, although there is definitely room for improvement. It is relatively accurate (77.4%) and has a good ability to distinguish between cases (ROC AUC = 0.850). While it has high precision (78.7%) meaning fewer false alarms, it also has moderate recall (75.2%) meaning some real cases might be missed. 
+
+
+
+```{r}
+#| label: tbl-final-conf-mat
+#| tbl-cap: 'Confusion Matrix displaying final Elastic Net Model Performance '
+#| echo: false
+
+final_conf_mat |>
+  autoplot(type = 'heatmap')
+```
+
+
+
+
+@tbl-final-conf-mat displays the number of correct and incorrect predictions, with the specific numbers corresponding to different types of predictions: 
+
+- Cell with 3808: We correctly predict that a person will contract heart disease or a heart attack in their life (True Positive). 
+- Cell with 3593: We correctly predict that a person will not contract heart disease or a heart attack in their life (True regative).
+- Cell with 1186: We incorrectly predict that a person will contract heart disease or a heart attack in their life (False Positive).
+- Cell with 971: We incorrectly predict that a person will not contract heart disease or a heart attack in their life (False Negative)
+
+
+
+
+![Comparison of the F1 Scores of Different Models](figures/model_comparison_autoplot.jpg){#fig-model-comparison-autoplot}
+
+
+*Note: Both the elastic net and binary logistic regression models use the logistic_reg() model specification, and therefore both show up as logistic_reg on this plot. The two leftmost logistic_reg points correspond to the elastic net model, and the other two correspond to the binary logistic regression model.*
+
+I believe that the model performs reasonably well. All the complex models perform significantly better than the baseline models, with the null model being the only one to have a F1 score of below 0.68 and appearing much lower on the @fig-model-comparison-autoplot than the other model F1 scores. The model types of elastic net, binary logistic, boosted tree and random all significantly out-perform the naive Bayes baseline model.
+Therefore, building a predictive model does pay off. I believe the elastic net performed the best because it provides regularization and therefore prevents against overfitting and multicollinearity, which is especially important for my dataset because many of the predictor variables are correlated with each other as aforemtioned.
+
+
+## Conclusion ## 
+This study aimed to predict whether an individual will experience a heart attack or heart disease based on health-related risk behaviors and chronic conditions. By addressing class imbalance and selecting appropriate models, I was able to identify that the elastic net model with a complex recipe performed the best, achieving an overall score of 76.9% for the F1 measure (the original evaluation metric I used to determine which model performed the best). It also demonstrated strong discriminatory ability (ROC AUC, aka Receiver Operating Characteristic - Area Under the Curve, = 0.850), reinforcing its potential in predictive healthcare applications. I am excited (although slightly apprehensive) about the applications of having modelled this; I anticipate sending out a questionnaire to my parents and then using their results to see whether or not they are at predicted to have heart disease!
+
+One key insight from this study is the importance of regularization in predictive modeling. The elastic net model outperformed simpler models by effectively handling multicollinearity and maintaining generalizability. Additionally, interaction terms between High Blood Pressure & High Cholesterol and High Blood Pressure & Diabetes contributed to model complexity and improved performance. 
+
+Despite promising results, there are areas for improvement. Future work/improvements could delve further into:
+
+- Feature Engineering: Incorporating additional interactions or non-linear transformations of variables to capture hidden patterns in the data. @tbl-chi-sq-results displayed that there were statistically significant correlations between many predictor variables, but I only chose to include two as I had supported their interaction with an EDA. I chose to limit the interactions I made because including too many interactions can lead to overfitting and make the model overly complex and difficult to interpret. 
+- Alternative Models: Investigating deep learning techniques or other ensemble methods like XGBoost to further improve predictive accuracy. Prior to realising I could just use a simple binary logistic regression model, I was going to explore Support Vector Machine, a model that finds the best way to separate data points into different categories (classes) by identifying a hyperplane that maximizes the margin between the closest points of different classes. 
+- Evaluation metric: I found it interesting how the ROC AUC value was actually significantly greater than the F1 score (85% compared to 76.9%). While I think I was right in picking an evaluation metric that strives for balance, using ROC AUC may have been a better strategy after addressing class imbalance. It evaluates overall model discrimination (how well it separates positive and negative cases) and does not rely on a specific threshold, unlike F1-score. While not necessarily a future step for this model in particular, I would like to refresh my understanding of evaluation metrics and how to pick the best one.
+- External Validation: It would be really interesting to test the model on other real datasets to assess the generalizability across different populations, perhaps of different countries with health habits similar/dissimilar to the United States. 
+
+Ultimately, this project demonstrates the value of machine learning in healthcare analytics, particularly in predicting chronic conditions like heart disease. While no predictive model can replace clinical diagnosis, models such as the ones I have fitted in this study can serve as valuable risk assessment tools, helping identify individuals at higher risk and supporting early intervention efforts. I look forward to reading about the latest advancements of modelling and machine learning in healthcare, as I understand this is already happening in the real world but is not without its own biases etc. 
+
+
+### Comment on Generative AI Use ### 
+I used generative AI to help me understand the code for a chi squared test for pairs of my predictor variables. I had originally used this link^[GeeksforGeeks. (2023, December 19). ChiSquare Test in R. GeeksforGeeks. [https://www.geeksforgeeks.org/chi-square-test-in-r/](https://www.geeksforgeeks.org/chi-square-test-in-r/)] as a starting point, but was very confused on how to perform a chi squared test for all potential pairs of the predictor variables in my dataset. I asked ChatGPT how to write a function that iterates over all unique pairs of predictor variables to perform a chi squared test and store the values in a dataframe. Similar to the first project, I turned to generative AI when I needed help writing functions, underscoring that this is where I need to work on developing my skills.
+
+
+## References##
+Centers for Disease Control and Prevention. (2024, August 5). Heart Disease Prevalence . CDC National Center for Health Statistics. [https://www.cdc.gov/nchs/hus/topics/heart-disease-prevalence.htm.
+
+Centers for Disease Control and Prevention. (2024, November 22). Behavioral Risk Factor Surveillance System. Cdc.gov. [https://www.cdc.gov/brfss/index.html](https://www.cdc.gov/brfss/index.html)
+
+Teboul, A (2023). Heart Disease Health Indicators Dataset. Kaggle. Retrieved February 4, 2022, from [https://www.kaggle.com/datasets/alexteboul/heart-disease-health-indicators-dataset/data](https://www.kaggle.com/datasets/alexteboul/heart-disease-health-indicators-dataset/data)
+
+##  Appendix: technical info ## 
+
+
+```{r}
+#| label: tbl-chi-sq-results
+#| tbl-cap: 'Chi Squared Results for Factor Variables'
+#| echo: false 
+
+chi_sq_results_df
+```
+
+
+
+From @tbl-chi-sq-results, we can see that there is likely a statistically significant relationship between many predictor variables, given that most have p-values of less than 0.05. Therefore, the elastic net model was picked as the final model given how its regularization prevents against multicollinearity. 
+
+## Appendix: Tuning Parameter Analysis ## 
+
+::: {.panel-tabset}
+
+#### Random Forest 
+:::{layout-ncol=2}
+![Random Forest Model (Simple) Autoplot](figures/rf_simple_autoplot.jpg){#fig-rf-simple-autoplot}
+
+![Random Forest Model (More Complex) Autoplot](figures/rf_autoplot.jpg){#fig-rf-autoplot}
+
+:::
+
+
+- In both models, the optimal number of randomly selected predictors is 3. This suggests that a lower number of sampled predictors per split improves performance by promoting model diversity and preventing overfitting.
+- The simpler model's performance (@fig-rf-simple-autoplot) drops more sharply as the number of randomly selected predictors increases. This suggests that the simpler model is more affected by increasing complexity (perhaps due to having fewer parameters or shallower trees). The more complex model's decline is more gradual (@fig-rf-autoplot), meaning it may be more robust to adding predictors. However, since its peak performance is slightly lower than that of the simpler model, it may still be suffering from mild overfitting due to having a lower minimal node size (16 vs. 20 in the simpler model), allowing deeper splits.
+- While the more complex model may allow for greater flexibility, it does not necessarily lead to better performance, as the simpler model still achieves a slightly higher F1 score at its peak. The key takeaway is that balancing complexity and generalization is crucial in Random Forest tuning, as excessive depth or too many predictors can reduce performance.
+
+
+
+#### Elastic Net 
+:::{layout-ncol=2}
+![Elastic Net Model (Simple) Autoplot](figures/en_simple_autoplot.jpg){#fig-en-simple-autoplot}
+
+![Elastic Net Model (More Complex) Autoplot](figures/en_autoplot.jpg){#fig-en-autoplot}
+
+:::
+
+- For both models, performance remains stable at lower levels of regularization but starts to decline sharply at high regularization values. The decline is slightly more gradual in the more complex model (@fig-en-autoplot), likely because it relies more on Ridge regression (L2 penalty), which prevents coefficients from shrinking to zero as aggressively as Lasso (L1 penalty).
+In contrast, the simpler model (@fig-en-simple-autoplot) shows a sharper drop-off in performance when regularization increases, indicating it is more reliant on Lasso (L1 penalty) for feature selection.
+- The simpler model (@fig-en-autoplot) is more sensitive to high Lasso penalties, showing a sharper drop-off in performance. The more complex model (@fig-en-simple-autoplot) declines more gradually, meaning it relies more on Ridge regression for stability. Both models perform best when balancing Ridge and Lasso penalties, avoiding extreme reliance on either.
+
+#### Nearest Neighbours 
+:::{layout-ncol=2}
+![Nearest Neighbours Model (Simple) Autoplot](figures/knn_simple_autoplot.jpg){#fig-knn-simple-autoplot}
+
+![Nearest Neighbours Model (More Complex) Autoplot](figures/knn_autoplot.jpg){#fig-knn-autoplot}
+
+:::
+
+- For both the simpler and more complex nearest neighbour models, a higher number of neighbors stabilizes performance, preventing overfitting to local variations in the data. The curves are steepest with fewer nearest neighbours and gradually plateau, suggesting that small nearest neighbour values lead to more variance, while higher values provide better stability. 
+- Similarly for both models, the performance stabilizes at around 50-60 nearest neighbours, meaning additional neighbors do not significantly improve the F1 score. This indicates that a sufficiently high nearest neighbours value smooths out noise in the decision boundary.
+- Although this is not necessarily immediately noticeable from these two plots, the simpler model (@fig-knn-simple-autoplot) reaches a slightly higher F1 score (0.74674) than the more complex model (@fig-knn-autoplot, 0.74554). The simpler model performs slightly better, suggesting that added complexity may not be necessary for the nearest neighbours model in this case.
+Selecting an appropriate k value is crucial—too low leads to high variance, while too high could reduce sensitivity to finer patterns.
+
+#### Boosted Trees
+:::{layout-ncol=2}
+![Boosted Trees Model (Simple) Autoplot](figures/bt_simple_autoplot.jpg){#fig-bt-simple-autoplot}
+
+![Boosted Trees Model (More Complex) Autoplot](figures/bt_autoplot.jpg){#fig-bt-autoplot}
+
+:::
+
+
+- Referring back to @tbl-model-f1-metrics, the more complex model achieves a slightly higher F1 score (0.76246) than the simple model (0.76195), but the difference is very small (0.00051). Given the standard errors of 0.001 and 0.00105, this difference is statistically insignificant. Both models perform essentially the same.
+- Both models exhibit similar trends, but the more complex model (@fig-bt-autoplot) appears to be slightly more sensitive to learning rates and minimal node sizes. Higher learning rates in both models lead to diminishing returns or performance drops, especially with more predictors.
+There is slightly more separation between the minimal node lines for the more complex model than the simpler model, suggesting it is slightly mroe important for the more complex model. 
+- Given that the difference in F1 scores is minimal, the simple model (@fig-bt-simple-autoplot) is a more practical choice due to its similar performance with lower complexity.
+
+
+:::
+
+
+##  Appendix: EDA  ## 
+
+::: {.panel-tabset}
+
+### High Blood Pressure & High Cholesterol 
+![Interaction between High Blood Pressure and High Cholesterol](figures/interaction-bpcol.jpg){#fig-interaction-bpcol}
+
+@fig-interaction-bpcol shows that exists an interaction between high blood pressure and high cholesterol. The impact of high blood pressure is noticeably stronger in the high cholesterol group, suggesting an interaction effect. This was a relationship explored for a potential interaction because both issues are related to one's cardiovascular system and are often interrelated. 
+
+### High Blood Pressure and Diabetes
+
+![Interaction between High Blood Pressure and Diabetes](figures/interaction-diabetesbp.jpg){#fig-interaction-diabetesbp}
+
+Likewise, @fig-interaction-diabetesbp suggests that there is an interaction between diabetes and high blood pressure. The effect of high blood pressure on whether or not someone will experience a heart attack seems to depend on diabetes status. If there were no interaction, we would expect the same increase in heart disease across all diabetes categories when the population has a high blood pressure. Instead, the impact of high blood pressure is noticeably stronger in the diabetes group, which suggests an interaction effect. This is a combination known to greatly increase cardiovascular risk and therefore was explored for potential interactions.
+:::
+
+Other relationships between outcome variables were explored but not found to have any interactions. These were (with the original hypothesis why they would be intercorrelated): 
+
+- BMI and level of physical activity: BMI is not always reflective of health; someone may have a high BMI but high physical activity level which would cancel out the negative aspects of BMI.
+- Being both a smoker and heavy drinker: Together these variables might have synergistic negative effects on cardiovascular health. 
+- Having regular cholesterol checks and high cholesterol: Regular checks might influence outcomes differently for individuals with high cholesterol, potentially lowering the rate of heart disease. 
+- Eating fruits and vegetables daily: Dietary patterns could have joint effects on health.
+- If the person wanted to visit a doctor within the past 1 year but couldn’t due to cost, and having health insurance: Barriers to care may differ based on whether someone has any insurance, and therefore affect a person's ability to take preventative measures for heart disease.
+- Mental health and physical health: The interplay between mental and physical health can be crucial for overall well-being.
+
+
+
+
+
+

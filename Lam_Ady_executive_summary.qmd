@@ -1,0 +1,204 @@
+---
+title: "Heart Disease Predictive Modelling in R"
+subtitle: |
+  | Executive Summary
+author: "Ady Lam"
+pagetitle: "Final Report Ady Lam"
+date: today
+
+format:
+  html:
+    toc: true
+    embed-resources: true
+    
+execute:
+  warning: false
+
+from: markdown+emoji 
+reference-location: margin
+citation-location: margin
+---
+
+::: {.callout-tip icon=false}
+## Github Repo Link
+[Ady's Github Repo URL for her Final Project - dun dun dun!!!](https://github.com/stat301-2-2025-winter/final-project-2-adylam00.git)
+:::
+
+```{r}
+#| label: load-pkgs
+#| echo: false
+
+# load packages
+library(tidyverse)
+library(tidymodels)
+
+# loading results/tables/figures
+load(here::here("figures/hdhi_outcome_table.rda"))
+load(here::here('figures/summary_table.rda'))
+load(here::here('figures/individual_variables_check.rda'))
+load(here::here('results/model_f1_metrics.rda'))
+load(here::here('results/chi_sq_results_df.rda'))
+load(here::here('results/best_en.rda'))
+load(here::here('results/model_best_hyperparameters.rda'))
+load(here::here('results/final_metric_values.rda'))
+load(here::here('results/final_conf_mat.rda'))
+
+```
+
+
+
+## Introduction 
+The goal of this project was to develop a classification model to predict whether individuals have experienced heart disease or a heart attack, based on binary outcome variables about their health-related risk behaviours and chronic health conditions.
+
+
+##  Methods 
+
+### Data Preprocessing & Splitting ###
+
+- The original dataset of 253,680 observations was filtered to create a balanced dataset by including all 'yes' cases (heart disease/attack) and randomly selecting an equal number of 'no' cases.
+The data was split into 80% training and 20% testing sets, with stratification to ensure both sets had a similar distribution of the outcome variable.
+
+
+### Models & Parameters ###
+
+The model types I fit are listed below, along with the parameters that I tuned in brackets (where applicable, with explanations of what these parameters mean). Each model was run with a basic and a more complex recipe apart from the null and Naive Bayes models. 
+
+Six model types were tested, with tuning parameters optimized where applicable:
+
+1. Null/Naive Bayes – Baseline models with no tuning parameters.
+2. Random Forest – Tuned for the number of sampled predictors (`mtry`) and minimum observations required for a split (`min_n`).
+3, Binary Logistic Regression – No tuning parameters, but interactions between predictors were tested.
+4. Nearest Neighbors – Tuned for the number of neighbors.
+5. Boosted Trees – Tuned for the same hyperparameters as the random forest model as both are decision tree models. 
+6. Elastic Net – Tuned for penalty (regularization strength) and mixture (balance between L1 and L2 regularization).
+
+### Recipes  
+Four different recipes were created for this modelling process:
+
+1. Basic recipe for a null model
+2. Basic recipe for a Naive Bayes model
+3. Complex recipe for tree-based models (random forest, boosted tree, nearest neighbours)
+4. Complex recipe for logistic regression recipes (elastic net, logistic regression)
+
+### Resampling and Evaluation ###
+
+- 7-fold cross-validation, repeated 5 times, was used to reduce variability in performance estimates.
+- The primary evaluation metric was the F1 score, chosen for its balanced representation of precision and recall, which are both critical for medical predictions.
+
+## Model Building & Selection ## 
+
+```{r}
+#| label: tbl-model-f1-metrics
+#| tbl-cap: 'F1 Scores for each fitted model'
+#| echo: false
+
+model_f1_metrics
+
+```
+
+The elastic net model was chosen as the final model due to its balance of performance, regularization benefits, and robustness against multicollinearity, making it the most reliable choice for this dataset. For the best-performing models (elastic net, binary logistic regression, and boosted trees), the more complex versions outperformed their simpler counterparts, but only by a small margin. This suggests that while added complexity marginally improves performance, the benefit is limited. Interestingly, for random forest and nearest neighbor models, the simpler versions performed better. This may be due to the complex models overfitting, as they allowed for more splits (random forest) or were affected by the curse of dimensionality (nearest neighbor), reducing their effectiveness.
+
+
+## Best Hyperparameter Values for Elastic Net Model
+```{r}
+#| label: tbl-best-en
+#| tbl-cap: 'Best Hyperparameter Values for Elastic Net Model'
+#| echo: false
+
+best_en |>
+  knitr::kable(digits = 4)
+```
+
+@tbl-best-en shows that the elastic net model with a more complex recipe performed the best when the `penalty` variable (how much the coefficients are shrunk toward zero) is  0.0151, whereas the `mixture` variable (the mix between L1 (lasso) and L2 (ridge) regression) is 0.1628. This means it uses a higher penalty (more regularization) and leans more toward ridge regression, benefitting from using all predictors without forcing many to zero.
+
+
+
+## Final Model Analysis ## 
+```{r}
+#| label: tbl-final-metric-values
+#| tbl-cap: 'Evaluation of Elastic Net Model Performance with Different Metrics'
+#| echo: false
+
+final_metric_values |>
+  rename(
+    Metric = .metric,
+    Estimator = .estimator,
+    Value = .estimate 
+  ) |>
+  mutate(
+    Value = round(Value, digits = 5)) |>
+  knitr::kable()
+```
+
+@tbl-final-metric-values demonstrates that the elastic net model had a strong overall performance across multiple evaluation metrics:
+
+- Accuracy: 77.4% – The model correctly classified 77.4% of all instances.
+- Precision: 78.7% – When predicting heart disease/attacks, the model was correct 78.7% of the time, minimizing false alarms.
+- Recall: 75.2% – The model correctly identified 75.2% of actual cases, though it missed 24.8%, highlighting a potential risk of false negatives.
+- F1 Score: 76.9% – The primary evaluation metric shows a balanced trade-off between precision and recall, indicating strong reliability.
+- ROC AUC: 0.850 – The model effectively distinguishes between positive and negative cases, correctly ranking individuals with and without heart disease 85% of the time.
+
+Therefore, the elastic net model offers robust predictive performance with strong accuracy and precision, making it effective at minimizing false alarms. However, the moderate recall indicates that some real cases may be missed, highlighting an area for potential improvement. Overall, the model is well-suited for medical predictions but could benefit from further optimization to reduce false negatives.
+
+```{r}
+#| label: tbl-final-conf-mat
+#| tbl-cap: 'Confusion Matrix displaying final Elastic Net Model Performance '
+#| echo: false
+
+final_conf_mat |>
+  autoplot(type = 'heatmap')
+```
+
+
+@tbl-final-conf-mat displays the number of correct and incorrect predictions, with the specific numbers corresponding to different types of predictions: 
+
+- Cell with 3808: We correctly predict that a person will contract heart disease or a heart attack in their life (True Positive). 
+- Cell with 3593: We correctly predict that a person will not contract heart disease or a heart attack in their life (True regative).
+- Cell with 1186: We incorrectly predict that a person will contract heart disease or a heart attack in their life (False Positive).
+- Cell with 971: We incorrectly predict that a person will not contract heart disease or a heart attack in their life (False Negative)
+
+
+
+
+![Comparison of the F1 Scores of Different Models](figures/model_comparison_autoplot.jpg){#fig-model-comparison-autoplot}
+
+
+*Note: Both the elastic net and binary logistic regression models use the logistic_reg() model specification, and therefore both show up as logistic_reg on this plot. The two leftmost logistic_reg points correspond to the elastic net model, and the other two correspond to the binary logistic regression model.*
+
+I believe that the final model performs reasonably well. All the complex models perform significantly better than the null and naive Bayes baseline models. Therefore, building a predictive model does pay off. I believe the elastic net performed the best because it provides regularization and therefore prevents against overfitting and multicollinearity, which is especially important for my dataset because many of the predictor variables are correlated with each other.
+
+
+## Conclusion ## 
+This study aimed to predict whether an individual will experience a heart attack or heart disease based on health-related risk behaviors and chronic conditions. By addressing class imbalance and selecting appropriate models, I was able to identify that the elastic net model with a complex recipe performed the best, achieving an overall score of 76.9% for the F1 measure (the original evaluation metric I used to determine which model performed the best). It also demonstrated strong discriminatory ability (ROC AUC, aka Receiver Operating Characteristic - Area Under the Curve, = 0.850), reinforcing its potential in predictive healthcare applications. I am excited (although slightly apprehensive) about the applications of having modelled this; I anticipate sending out a questionnaire to my parents and then using their results to see whether or not they are at predicted to have heart disease!
+
+One key insight from this study is the importance of regularization in predictive modeling. The elastic net model outperformed simpler models by effectively handling multicollinearity and maintaining generalizability. Additionally, interaction terms between High Blood Pressure & High Cholesterol and High Blood Pressure & Diabetes contributed to model complexity and improved performance. 
+
+Despite promising results, there are areas for improvement. Future work/improvements could delve further into:
+
+- Feature Engineering: Incorporating additional interactions or non-linear transformations of variables to capture hidden patterns in the data. @tbl-chi-sq-results displayed that there were statistically significant correlations between many predictor variables, but I only chose to include two as I had supported their interaction with an EDA. I chose to limit the interactions I made because including too many interactions can lead to overfitting and make the model overly complex and difficult to interpret. 
+- Alternative Models: Prior to realising I could just use a simple binary logistic regression model, I was going to explore Support Vector Machine, a model that finds the best way to separate data points into different categories (classes) by identifying a hyperplane that maximizes the margin between the closest points of different classes. 
+- Evaluation metric: I found it interesting how the ROC AUC value was actually significantly greater than the F1 score (85% compared to 76.9%). While I think I was right in picking an evaluation metric that strives for balance, using ROC AUC may have been a better strategy after addressing class imbalance. It evaluates overall model discrimination (how well it separates positive and negative cases) and does not rely on a specific threshold, unlike F1-score. While not necessarily a future step for this model in particular, I would like to refresh my understanding of evaluation metrics and how to pick the best one.
+- External Validation: It would be really interesting to test the model on other real datasets to assess the generalizability across different populations, perhaps of different countries with health habits similar/dissimilar to the United States. 
+
+Ultimately, this project demonstrates the value of machine learning in healthcare analytics, particularly in predicting chronic conditions like heart disease. While no predictive model can replace clinical diagnosis, models such as the ones I have fitted in this study can serve as valuable risk assessment tools, helping identify individuals at higher risk and supporting early intervention efforts. I look forward to reading about the latest advancements of modelling and machine learning in healthcare, as I understand this is already happening in the real world but is not without its own biases etc. 
+
+This study aimed to predict an individual’s risk of heart disease or heart attack using health-related risk behaviors and chronic conditions. The elastic net model with a complex recipe emerged as the top performer, achieving an F1 score of 76.9% and a ROC AUC of 0.850, demonstrating strong predictive accuracy and discriminatory power. The elastic net model outperformed simpler models by effectively handling multicollinearity and enhancing generalizability. Including interactions between High Blood Pressure & High Cholesterol and High Blood Pressure & Diabetes improved the model's predictive power by capturing key health-related relationships. These results highlight the model’s potential in healthcare applications for using questinonaire results to identify individuals at higher risk of heart disease and supporting early intervention efforts.
+
+In the future, I would like to build upon this project through the following steps:
+- Feature Engineering: Adding more interactions or non-linear transformations could capture hidden patterns and improve accuracy.
+- Alternative Models: Exploring other methods like XGBoost and SVM could further enhance predictive performance.
+- Evaluation Metric Selection: The ROC AUC of 0.850 was notably higher than the F1 score, indicating the model’s strong discriminatory power. Future studies might consider using ROC AUC as the primary evaluation metric, especially after addressing class imbalance.
+- External Validation: Testing the model on diverse, real-world datasets from different populations would assess its generalizability and robustness.
+
+
+### Comment on Generative AI Use ### 
+I used generative AI to help me understand the code for a chi squared test for pairs of my predictor variables. I had originally used this link^[GeeksforGeeks. (2023, December 19). ChiSquare Test in R. GeeksforGeeks. [https://www.geeksforgeeks.org/chi-square-test-in-r/](https://www.geeksforgeeks.org/chi-square-test-in-r/)] as a starting point, but was very confused on how to perform a chi squared test for all potential pairs of the predictor variables in my dataset. I asked ChatGPT how to write a function that iterates over all unique pairs of predictor variables to perform a chi squared test and store the values in a dataframe. Similar to the first project, I turned to generative AI when I needed help writing functions, underscoring that this is where I need to work on developing my skills.
+
+
+## References##
+Centers for Disease Control and Prevention. (2024, August 5). Heart Disease Prevalence . CDC National Center for Health Statistics. [https://www.cdc.gov/nchs/hus/topics/heart-disease-prevalence.htm.
+
+Centers for Disease Control and Prevention. (2024, November 22). Behavioral Risk Factor Surveillance System. Cdc.gov. [https://www.cdc.gov/brfss/index.html](https://www.cdc.gov/brfss/index.html)
+
+Teboul, A (2023). Heart Disease Health Indicators Dataset. Kaggle. Retrieved February 4, 2022, from [https://www.kaggle.com/datasets/alexteboul/heart-disease-health-indicators-dataset/data](https://www.kaggle.com/datasets/alexteboul/heart-disease-health-indicators-dataset/data)
+
